@@ -1,19 +1,10 @@
 {
-  "port": 18789,
-  "authToken": "your-secret-token",
+  "port": 18790,
+  "authToken": "",
   "providers": {
-    "claude-web": { "cookie": "sessionKey=xxx" },
-    "deepseek-web": { "cookie": "xxx" },
-    "chatgpt-web": { "cookie": "xxx" },
-    "doubao-web": { "cookie": "xxx" },
-    "qwen-web": { "cookie": "xxx" },
-    "qwen-cn-web": { "cookie": "xxx" },
-    "kimi-web": { "cookie": "xxx" },
-    "gemini-web": { "cookie": "xxx" },
-    "grok-web": { "cookie": "xxx" },
-    "glm-web": { "cookie": "xxx" },
-    "glm-intl-web": { "cookie": "xxx" },
-    "perplexity-web": { "cookie": "xxx" },
-    "xiaomimo-web": { "cookie": "xxx" }
+    "kimi-web": {
+      "cookie": "你的 access_token Cookie 值",
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36"
+    }
   }
 }

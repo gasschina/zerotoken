@@ -164,7 +164,8 @@ export function createServer(options: ZeroTokenServerOptions = {}) {
   const ztConfig: ZeroTokenConfig = options.config || (rootConfig as unknown as ZeroTokenConfig);
 
   const port = options.port || ztConfig.port || parseInt(process.env.ZEROTOKEN_PORT || "18789", 10);
-  const authToken = options.authToken || ztConfig.authToken || process.env.ZEROTOKEN_AUTH_TOKEN || "";
+  // Treat empty string, null, or undefined as no auth token
+  const authToken = (options.authToken || ztConfig.authToken || process.env.ZEROTOKEN_AUTH_TOKEN || "").trim() || undefined;
   const providers = ztConfig.providers || {};
 
   /**
