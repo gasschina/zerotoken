@@ -16,6 +16,7 @@ ZeroToken v${VERSION} - 零成本的本地免费 LLM API 服务
 
 用法:
   zerotoken [选项]
+  zerotoken login [子命令]
 
 选项:
   --port, -p <端口>         指定服务端口 (默认: 18789)
@@ -23,6 +24,13 @@ ZeroToken v${VERSION} - 零成本的本地免费 LLM API 服务
   --auth <token>            设置认证 Token
   --help, -h                显示帮助信息
   --version, -v             显示版本号
+
+登录命令:
+  zerotoken login                 交互式选择 Provider 登录
+  zerotoken login <provider>      登录指定 Provider (如 claude-web, deepseek-web)
+  zerotoken login --all           登录所有 Provider
+  zerotoken login --list          查看已授权的 Provider
+  zerotoken login --remove        删除所有已存储的凭证
 
 环境变量:
   ZEROTOKEN_PORT            服务端口 (默认: 18789)
@@ -40,14 +48,19 @@ ZeroToken v${VERSION} - 零成本的本地免费 LLM API 服务
     }
   }
 
+凭证来源 (优先级从高到低):
+  1. zerotoken.json 配置文件中的 providers
+  2. zerotoken login 命令保存的凭证 (~/.zerotoken/auth-profiles.json)
+  3. 环境变量 ZEROTOKEN_<PROVIDER> (如 ZEROTOKEN_CLAUDE_WEB)
+
 示例:
   zerotoken                          # 使用默认配置启动
   zerotoken --port 8080              # 指定端口
   zerotoken --config /path/to.json   # 指定配置文件
   zerotoken --auth my-secret         # 设置认证 Token
-
-启动 Chrome (调试模式):
-  chrome --remote-debugging-port=9222
+  zerotoken login                    # 交互式登录
+  zerotoken login claude-web         # 登录 Claude
+  zerotoken login --all              # 登录所有 Provider
 
 使用 API:
   curl http://localhost:18789/v1/chat/completions \\
@@ -66,6 +79,8 @@ function parseArgs(args: string[]): {
   authToken?: string;
   help: boolean;
   version: boolean;
+  subcommand?: string;
+  subcommandArgs: string[];
 } {
   const result = {
     port: undefined as number | undefined,
@@ -73,7 +88,16 @@ function parseArgs(args: string[]): {
     authToken: undefined as string | undefined,
     help: false,
     version: false,
+    subcommand: undefined as string | undefined,
+    subcommandArgs: [] as string[],
   };
+
+  // Check for subcommand first
+  if (args.length > 0 && args[0] === "login") {
+    result.subcommand = "login";
+    result.subcommandArgs = args.slice(1);
+    return result;
+  }
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -135,6 +159,13 @@ async function main() {
 
   if (parsed.version) {
     printVersion();
+    process.exit(0);
+  }
+
+  // Handle login subcommand
+  if (parsed.subcommand === "login") {
+    const { runLoginCommand } = await import("./login.js");
+    await runLoginCommand(parsed.subcommandArgs);
     process.exit(0);
   }
 

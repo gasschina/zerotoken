@@ -1,6 +1,7 @@
 /**
- * Minimal CDP helpers stub for zerotoken.
- * Provides getHeadersWithAuth and other utilities needed by browser client providers.
+ * CDP helpers for zerotoken.
+ * Provides getHeadersWithAuth, isWebSocketUrl, normalizeCdpWsUrl,
+ * appendCdpPath, and other utilities needed by browser client providers.
  */
 
 /**
@@ -16,7 +17,7 @@ export function isWebSocketUrl(url: string): boolean {
 }
 
 /**
- * Returns true when the URL uses a loopback address.
+ * Returns true when the hostname is a loopback address.
  */
 export function isLoopbackHost(hostname: string): boolean {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
@@ -85,8 +86,9 @@ export function normalizeCdpHttpBaseForJsonEndpoints(cdpUrl: string): string {
 
 /**
  * Normalize a CDP WebSocket URL, ensuring it uses the ws(s) protocol.
+ * If the wsUrl is relative or doesn't have a protocol, construct it from the cdpUrl.
  */
-export function normalizeCdpWsUrl(wsUrl: string, _cdpUrl?: string): string {
+export function normalizeCdpWsUrl(wsUrl: string, cdpUrl?: string): string {
   // If wsUrl is already a valid ws(s) URL, return it
   try {
     const parsed = new URL(wsUrl);
@@ -94,8 +96,22 @@ export function normalizeCdpWsUrl(wsUrl: string, _cdpUrl?: string): string {
       return wsUrl;
     }
   } catch {
-    // ignore
+    // Not a full URL
   }
-  // Otherwise, return as-is
+
+  // If wsUrl looks like a relative path or just a path, construct from cdpUrl
+  if (cdpUrl && wsUrl.startsWith("/")) {
+    try {
+      const base = new URL(cdpUrl);
+      const protocol = base.protocol === "https:" ? "wss:" : "ws:";
+      const host = base.hostname;
+      const port = base.port || (base.protocol === "https:" ? "443" : "80");
+      return `${protocol}//${host}:${port}${wsUrl}`;
+    } catch {
+      // ignore
+    }
+  }
+
+  // Return as-is as a fallback
   return wsUrl;
 }

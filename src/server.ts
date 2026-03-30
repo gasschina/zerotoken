@@ -27,6 +27,7 @@ import {
 } from "./zero-token/bridge/web-providers.js";
 import type { OpenClawConfig } from "./config/config.js";
 import { loadConfig } from "./config/io.js";
+import { getAuthProviderCredential } from "./auth-store.js";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -196,20 +197,43 @@ export function createServer(options: ZeroTokenServerOptions = {}) {
 
   /**
    * Get the cookie/credential string for a provider.
+   * Resolution order:
+   *   1. zerotoken.json config file (providers section)
+   *   2. ~/.zerotoken/auth-profiles.json (from login command)
+   *   3. Environment variable ZEROTOKEN_<PROVIDER> (JSON string)
    */
   function getProviderCredential(apiId: string): string {
+    // 1. Check zerotoken.json config file
     const creds = providers[apiId];
-    if (!creds) return "";
+    if (creds) {
+      if (creds.sessionKey) {
+        return JSON.stringify(creds);
+      }
+      if (creds.accessToken) {
+        return JSON.stringify(creds);
+      }
+      if (creds.cookie) {
+        return JSON.stringify({ cookie: creds.cookie, userAgent: creds.userAgent });
+      }
+    }
 
-    if (creds.sessionKey) {
-      return JSON.stringify(creds);
+    // 2. Check auth-store (from zerotoken login command)
+    const storedCred = getAuthProviderCredential(apiId);
+    if (storedCred) {
+      return storedCred;
     }
-    if (creds.accessToken) {
-      return JSON.stringify(creds);
+
+    // 3. Check environment variable (e.g., ZEROTOKEN_CLAUDE_WEB)
+    const envKey = `ZEROTOKEN_${apiId.replace(/-/g, "_").toUpperCase()}`;
+    const envVal = process.env[envKey];
+    if (envVal) {
+      // If it looks like JSON, use it directly; otherwise treat as cookie string
+      if (envVal.startsWith("{")) {
+        return envVal;
+      }
+      return JSON.stringify({ cookie: envVal });
     }
-    if (creds.cookie) {
-      return JSON.stringify({ cookie: creds.cookie });
-    }
+
     return "";
   }
 
@@ -249,7 +273,12 @@ export function createServer(options: ZeroTokenServerOptions = {}) {
     const allModels: OpenAIModelObject[] = [];
 
     for (const [apiId, builder] of Object.entries(PROVIDER_BUILDERS)) {
-      if (!providers[apiId] && !process.env[`ZEROTOKEN_${apiId.replace(/-/g, "_").toUpperCase()}`]) {
+      // Check if provider has credentials from any source
+      const hasConfigCreds = !!providers[apiId];
+      const hasStoredCreds = !!getAuthProviderCredential(apiId);
+      const hasEnvCreds = !!process.env[`ZEROTOKEN_${apiId.replace(/-/g, "_").toUpperCase()}`];
+
+      if (!hasConfigCreds && !hasStoredCreds && !hasEnvCreds) {
         continue; // Skip unconfigured providers
       }
 
