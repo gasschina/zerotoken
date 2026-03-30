@@ -185,6 +185,7 @@ export function createKimiWebStreamFn(cookieOrJson: string): StreamFn {
           };
           (msg as AssistantMessage & { thinking_enabled?: boolean }).thinking_enabled =
             contentParts.some((p) => p.type === "thinking");
+          console.log(`[KimiWebStream] createPartial called. contentParts length: ${contentParts.length}, content:`, JSON.stringify(contentParts).slice(0, 200));
           return msg;
         };
 
@@ -241,6 +242,7 @@ export function createKimiWebStreamFn(cookieOrJson: string): StreamFn {
           const index = indexMap.get(key)!;
           if (type === "text") {
             (contentParts[index] as TextContent).text += delta;
+            console.log(`[KimiWebStream] text_delta: index=${index}, delta="${delta.slice(0, 30)}", total="${(contentParts[index] as TextContent).text.slice(0, 50)}"`);
             stream.push({
               type: "text_delta",
               contentIndex: index,
@@ -402,11 +404,15 @@ export function createKimiWebStreamFn(cookieOrJson: string): StreamFn {
 
           const dataStr = line.slice(5).trim();
           if (dataStr === "[DONE]" || !dataStr) {
+            if (dataStr === "[DONE]") {
+                console.log("[KimiWebStream] Received DONE");
+            }
             return;
           }
 
           try {
             const data = JSON.parse(dataStr);
+            console.log("[KimiWebStream] processLine got data:", JSON.stringify(data).slice(0, 200));
 
             // Extract conversation ID
             if (data.sessionId || data.sessionId) {
@@ -417,10 +423,13 @@ export function createKimiWebStreamFn(cookieOrJson: string): StreamFn {
             const delta =
               data.choices?.[0]?.delta?.content ?? data.text ?? data.content ?? data.delta;
             if (typeof delta === "string" && delta) {
+                console.log("[KimiWebStream] pushDelta with delta:", delta.slice(0, 50));
               pushDelta(delta);
+            } else {
+                console.log("[KimiWebStream] No delta found in data, delta type:", typeof delta);
             }
-          } catch {
-            // Ignore parse errors
+          } catch (e) {
+            console.warn("[KimiWebStream] Failed to parse line:", line, e);
           }
         };
 

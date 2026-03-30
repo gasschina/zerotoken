@@ -107,40 +107,27 @@ export class KimiWebClientBrowser {
     }
 
     if (this.cookie.trim()) {
-      const pageUrl = this.page?.url() ?? this.baseUrl;
-      const domain = pageUrl.includes("moonshot.cn") ? ".moonshot.cn" : ".kimi.com";
+      // Ensure page is loaded first so we can determine domain correctly
+      const currentUrl = this.page?.url() || this.baseUrl;
+      const targetDomain = currentUrl.includes("moonshot.cn") ? "moonshot.cn" : "kimi.com";
 
-      const rawCookies = this.cookie.split(";").map((c) => {
-        const [name, ...valueParts] = c.trim().split("=");
-        const nameStr = name?.trim() ?? "";
-        const valueStr = valueParts.join("=").trim();
-        if (!nameStr) {
-          return null;
-        }
-        const cookie: {
-          name: string;
-          value: string;
-          domain: string;
-          path: string;
-          secure?: boolean;
-        } = {
-          name: nameStr,
-          value: valueStr,
-          domain,
-          path: "/",
-        };
-        if (nameStr.startsWith("__Secure-") || nameStr.startsWith("__Host-")) {
-          cookie.secure = true;
-        }
-        return cookie;
-      });
-      const cookies = rawCookies.filter((c): c is NonNullable<typeof c> => c !== null);
-      if (cookies.length > 0) {
+      // Only add the essential kimi-auth cookie to avoid invalid cookie errors
+      // Extract kimi-auth from the cookie string
+      const kimiAuthMatch = this.cookie.match(/kimi-auth=([^;]+)/);
+      if (kimiAuthMatch) {
         try {
-          await this.browser.addCookies(cookies);
+          await this.browser.addCookies([
+            {
+              name: "kimi-auth",
+              value: kimiAuthMatch[1],
+              domain: targetDomain,
+              path: "/",
+            },
+          ]);
+          console.log(`[Kimi Web] Added kimi-auth cookie`);
         } catch (err) {
           console.warn(
-            `[Kimi Web] addCookies failed (page may already have session): ${err instanceof Error ? err.message : String(err)}`,
+            `[Kimi Web] Failed to add kimi-auth cookie: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
       }
@@ -179,6 +166,7 @@ export class KimiWebClientBrowser {
         kimiAuthToken: string;
         scenario: string;
       }) => {
+        console.log("[Kimi Page] Starting API call, scenario:", scenario, "message:", message.slice(0, 50));
         const req = {
           scenario,
           message: {
@@ -195,56 +183,69 @@ export class KimiWebClientBrowser {
         dv.setUint32(1, enc.byteLength, false);
         new Uint8Array(buf, 5).set(enc);
 
-        const res = await fetch(`${baseUrl}/apiv2/kimi.gateway.chat.v1.ChatService/Chat`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/connect+json",
-            "Connect-Protocol-Version": "1",
-            Accept: "*/*",
-            Origin: baseUrl,
-            Referer: `${baseUrl}/`,
-            "X-Language": "zh-CN",
-            "X-Msh-Platform": "web",
-            Authorization: `Bearer ${kimiAuthToken}`,
-          },
-          body: buf,
-        });
+        try {
+          const res = await fetch(`${baseUrl}/apiv2/kimi.gateway.chat.v1.ChatService/Chat`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/connect+json",
+              "Connect-Protocol-Version": "1",
+              Accept: "*/*",
+              Origin: baseUrl,
+              Referer: `${baseUrl}/`,
+              "X-Language": "zh-CN",
+              "X-Msh-Platform": "web",
+              Authorization: `Bearer ${kimiAuthToken}`,
+            },
+            body: buf,
+          });
 
-        if (!res.ok) {
-          const text = await res.text();
-          return { ok: false as const, error: text.slice(0, 400) };
-        }
-        const arr = await res.arrayBuffer();
-        const u8 = new Uint8Array(arr);
-        const texts: string[] = [];
-        let o = 0;
-        while (o + 5 <= u8.length) {
-          const len = new DataView(u8.buffer, u8.byteOffset + o + 1, 4).getUint32(0, false);
-          if (o + 5 + len > u8.length) {
-            break;
+          console.log("[Kimi Page] Response status:", res.status, res.statusText);
+
+          if (!res.ok) {
+            const text = await res.text();
+            console.error("[Kimi Page] Error response:", text.slice(0, 400));
+            return { ok: false as const, error: `HTTP ${res.status}: ${text.slice(0, 400)}` };
           }
-          const chunk = u8.slice(o + 5, o + 5 + len);
-          try {
-            const obj = JSON.parse(new TextDecoder().decode(chunk));
-            if (obj.error) {
-              return {
-                ok: false as const,
-                error:
-                  obj.error.message || obj.error.code || JSON.stringify(obj.error).slice(0, 200),
-              };
-            }
-            if (obj.block?.text?.content && ["set", "append"].includes(obj.op || "")) {
-              texts.push(obj.block.text.content);
-            }
-            if (obj.done) {
+
+          const arr = await res.arrayBuffer();
+          const u8 = new Uint8Array(arr);
+          console.log("[Kimi Page] Received bytes:", u8.length);
+          const texts: string[] = [];
+          let o = 0;
+          while (o + 5 <= u8.length) {
+            const len = new DataView(u8.buffer, u8.byteOffset + o + 1, 4).getUint32(0, false);
+            if (o + 5 + len > u8.length) {
               break;
             }
-          } catch {
-            // ignore parse errors for non-JSON chunks
+            const chunk = u8.slice(o + 5, o + 5 + len);
+            try {
+              const obj = JSON.parse(new TextDecoder().decode(chunk));
+              if (obj.error) {
+                console.error("[Kimi Page] API error:", obj.error);
+                return {
+                  ok: false as const,
+                  error:
+                    obj.error.message || obj.error.code || JSON.stringify(obj.error).slice(0, 200),
+                };
+              }
+              if (obj.block?.text?.content && ["set", "append"].includes(obj.op || "")) {
+                texts.push(obj.block.text.content);
+              }
+              if (obj.done) {
+                break;
+              }
+            } catch (e) {
+              console.warn("[Kimi Page] Parse error for chunk:", e);
+            }
+            o += 5 + len;
           }
-          o += 5 + len;
+          const finalText = texts.join("");
+          console.log("[Kimi Page] Final text:", finalText.slice(0, 200));
+          return { ok: true as const, text: finalText };
+        } catch (e) {
+          console.error("[Kimi Page] Fetch exception:", e);
+          return { ok: false as const, error: `Fetch exception: ${e instanceof Error ? e.message : String(e)}` };
         }
-        return { ok: true as const, text: texts.join("") };
       },
       {
         baseUrl: this.baseUrl,
@@ -263,6 +264,8 @@ export class KimiWebClientBrowser {
     if (!result.ok) {
       throw new Error(`Kimi API 错误: ${result.error}`);
     }
+
+    console.log(`[Kimi Web] API returned text:`, JSON.stringify(result.text).slice(0, 200));
 
     const escaped = JSON.stringify(result.text);
     const sse = `data: {"text":${escaped}}\n\ndata: [DONE]\n\n`;

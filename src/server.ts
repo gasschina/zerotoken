@@ -309,9 +309,12 @@ export function createServer(options: ZeroTokenServerOptions = {}) {
    * POST /v1/chat/completions - Chat completions
    */
   async function handleChatCompletions(req: Request, res: Response) {
+    const requestId = `req_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    console.log(`[server] ${requestId} - Received request. model=${req.body.model}, stream=${req.body.stream}`);
     if (!checkAuth(req, res)) return;
 
     const body = req.body as OpenAIChatRequest;
+    console.log(`[server] ${requestId} - body parsed. messages count: ${body.messages?.length}`);
 
     if (!body.model) {
       res.status(400).json({
@@ -516,21 +519,28 @@ export function createServer(options: ZeroTokenServerOptions = {}) {
           res.end();
         });
       } else {
-        // Non-streaming mode
-        let fullContent = "";
-        let finishReason = "stop";
+        // Non-streaming mode - consume the stream to get full result
+        try {
+          console.log("[server] Non-stream mode, consuming stream of type:", typeof stream);
+          let fullContent = "";
+          let finishReason = "stop";
 
-        stream.on("data", (event: any) => {
-          if (event.type === "text_delta" && event.delta) {
-            fullContent += event.delta;
-          } else if (event.type === "thinking_delta" && event.delta) {
-            fullContent += event.delta;
-          } else if (event.type === "done") {
-            finishReason = event.reason === "toolUse" ? "tool_calls" : "stop";
+          // pi-ai AssistantMessageEventStream supports async iteration
+          let eventCount = 0;
+          for await (const event of stream as any) {
+            eventCount++;
+            console.log("[server] Stream event #" + eventCount + ":", event.type, event.delta ? `delta: ${event.delta.slice(0, 50)}` : '');
+            if (event.type === "text_delta" && event.delta) {
+              fullContent += event.delta;
+            } else if (event.type === "thinking_delta" && event.delta) {
+              fullContent += event.delta;
+            } else if (event.type === "done") {
+              finishReason = event.reason === "toolUse" ? "tool_calls" : "stop";
+            }
           }
-        });
+          console.log("[server] Stream consumed. Events:", eventCount, "Final content length:", fullContent.length, "Content:", fullContent.slice(0, 100));
 
-        stream.on("end", () => {
+          console.log("[server] Sending response. fullContent:", fullContent.slice(0, 100), "finishReason:", finishReason);
           res.json({
             id: `chatcmpl-${Date.now()}`,
             object: "chat.completion",
@@ -548,22 +558,21 @@ export function createServer(options: ZeroTokenServerOptions = {}) {
             ],
             usage: {
               prompt_tokens: 0,
-              completion_tokens: 0,
-              total_tokens: 0,
+              completion_tokens: fullContent.length,
+              total_tokens: fullContent.length,
             },
           });
-        });
-
-        stream.on("error", (err: any) => {
-          console.error("[zerotoken] Stream error:", err);
+          console.log("[server] Response sent.");
+        } catch (err) {
+          console.error("[zerotoken] Non-stream chat error:", err);
           res.status(500).json({
             error: {
-              message: err?.errorMessage || String(err),
+              message: err instanceof Error ? err.message : String(err),
               type: "server_error",
-              code: "stream_error",
+              code: "internal_error",
             },
           });
-        });
+        }
       }
     } catch (err) {
       console.error("[zerotoken] Chat completions error:", err);
