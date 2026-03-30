@@ -1,0 +1,12 @@
+{
+  "name": "@openclaw/askonce",
+  "version": "2026.3.12",
+  "private": true,
+  "description": "OpenClaw AskOnce plugin - Query multiple AI models simultaneously",
+  "type": "module",
+  "openclaw": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  }
+}

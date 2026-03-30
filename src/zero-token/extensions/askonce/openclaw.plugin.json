@@ -1,0 +1,10 @@
+{
+  "id": "askonce",
+  "name": "AskOnce",
+  "description": "一次提问，获取所有大模型答案 - Query multiple AI models simultaneously with a single question",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  }
+}
